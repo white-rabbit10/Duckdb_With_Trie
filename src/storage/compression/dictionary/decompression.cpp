@@ -57,6 +57,49 @@ void CompressedStringScanState::Initialize(ColumnSegment &segment, bool initiali
 		uint16_t str_len = GetStringLength(i);
 		dict_child_data[i] = FetchStringFromDict(UnsafeNumericCast<int32_t>(index_buffer_ptr[i]), str_len);
 	}
+
+	fprintf(stderr, "[Trie] Initialize() called. initialize_dictionary = %d\n", initialize_dictionary);
+	fprintf(stderr, "[Trie] dictionary_size = %u\n", (unsigned)dictionary_size);
+    trie = make_uniq<Trie>();	
+
+    for (idx_t i = 1; i < dictionary_size; i++) {
+        trie->Insert(dict_child_data[i], UnsafeNumericCast<uint32_t>(i));
+    }
+	fprintf(stderr, "[Trie] Creating Trie and inserting dictionary entries...");
+
+}
+
+idx_t CompressedStringScanState::CountEqual(const string_t &value) {
+    // 1. If no trie (e.g., initialize_dictionary=false) → fallback or return 0
+    if (!trie) {
+        // optional: you could fall back to a linear scan over dictionary strings here
+        return 0;
+    }
+
+    // 2. Use the Trie to find the dictionary ID for this exact string
+    uint32_t dict_id;
+    if (!trie->FindExact(value, dict_id)) {
+        // the string is not in the dictionary at all → no rows match
+        return 0;
+    }
+
+    // 3. Scan the index buffer and count rows with that dictionary ID
+    idx_t count = 0;
+    for (idx_t i = 0; i < index_buffer_count; i++) {
+        if (index_buffer_ptr[i] == dict_id) {
+            count++;
+        }
+    }
+    return count;
+}
+
+void CompressedStringScanState::SearchPrefix(const string_t &prefix, std::vector<uint32_t> &out_ids) {
+    out_ids.clear();
+    if (!trie) {
+        // Should not happen if Initialize was called with initialize_dictionary = true
+        return;
+    }
+    trie->CollectPrefix(prefix, out_ids);
 }
 
 void CompressedStringScanState::ScanToFlatVector(Vector &result, idx_t result_offset, idx_t start, idx_t scan_count) {

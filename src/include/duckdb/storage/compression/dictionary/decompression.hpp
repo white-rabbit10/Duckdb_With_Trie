@@ -1,6 +1,7 @@
 #pragma once
 
 #include "duckdb/storage/compression/dictionary/common.hpp"
+#include "duckdb/storage/compression/dictionary/trie.hpp" 
 
 namespace duckdb {
 
@@ -21,6 +22,8 @@ public:
 	void ScanToFlatVector(Vector &result, idx_t result_offset, idx_t start, idx_t scan_count);
 	void ScanToDictionaryVector(ColumnSegment &segment, Vector &result, idx_t result_offset, idx_t start,
 	                            idx_t scan_count);
+	void SearchPrefix(const string_t &prefix, std::vector<uint32_t> &out_ids);
+	idx_t CountEqual(const string_t &value);
 
 private:
 	string_t FetchStringFromDict(int32_t dict_offset, uint16_t string_len);
@@ -45,6 +48,7 @@ public:
 	idx_t dictionary_size;
 	StringDictionaryContainer dict;
 	idx_t block_size;
+	unique_ptr<Trie> trie;
 };
 
 } // namespace duckdb

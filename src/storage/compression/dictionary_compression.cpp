@@ -10,7 +10,9 @@
 #include "duckdb/storage/segment/uncompressed.hpp"
 #include "duckdb/storage/string_uncompressed.hpp"
 #include "duckdb/storage/table/column_data_checkpointer.hpp"
-
+#include "duckdb/planner/filter/constant_filter.hpp"
+#include "duckdb/common/types/value.hpp"
+#include "duckdb/common/printer.hpp"
 /*
 Data layout per segment:
 +------------------------------------------------------+
@@ -68,11 +70,11 @@ struct DictionaryCompressionStorage {
 // Analyze
 //===--------------------------------------------------------------------===//
 unique_ptr<AnalyzeState> DictionaryCompressionStorage::StringInitAnalyze(ColumnData &col_data, PhysicalType type) {
-	auto &storage_manager = col_data.GetStorageManager();
-	if (storage_manager.GetStorageVersion() >= 5) {
-		// dict_fsst introduced - disable dictionary
-		return nullptr;
-	}
+	// auto &storage_manager = col_data.GetStorageManager();
+	// if (storage_manager.GetStorageVersion() >= 5) {
+	// 	// dict_fsst introduced - disable dictionary
+	// 	return nullptr;
+	// }
 
 	CompressionInfo info(col_data.GetBlockManager());
 	return make_uniq<DictionaryCompressionAnalyzeState>(info);
@@ -127,6 +129,7 @@ unique_ptr<SegmentScanState> DictionaryCompressionStorage::StringInitScan(const 
                                                                           ColumnSegment &segment) {
 	auto &buffer_manager = BufferManager::GetBufferManager(segment.db);
 	auto state = make_uniq<CompressedStringScanState>(buffer_manager.Pin(segment.block));
+	fprintf(stderr, "[Trie] StringInitScan called \n");
 	state->Initialize(segment, true);
 	return std::move(state);
 }
