@@ -366,15 +366,6 @@ void ColumnData::Filter(TransactionData transaction, idx_t vector_index, ColumnS
                         SelectionVector &sel, idx_t &s_count, const TableFilter &filter,
                         TableFilterState &filter_state) {
 	// --- TRIE FAST PATH FOR VARCHAR + DICTIONARY + EQUALITY ---
-	fprintf(stderr,
-	        "[Trie-CD] ColumnData::Filter ENTERED: col_index=%lld, vector_index=%lld, s_count=%lld, "
-	        "filter_type=%d, logical_type=%s\n",
-	        (long long)column_index,
-	        (long long)vector_index,
-	        (long long)s_count,
-	        (int)filter.filter_type,
-	        type.ToString().c_str());
-
 	if (filter.filter_type == TableFilterType::CONSTANT_COMPARISON &&
 	    type.id() == LogicalTypeId::VARCHAR) {
 
@@ -385,8 +376,6 @@ void ColumnData::Filter(TransactionData transaction, idx_t vector_index, ColumnS
 
 		if (constant_filter.comparison_type == ExpressionType::COMPARE_EQUAL) {
 			fprintf(stderr, "[Trie-CD] comparison_type = COMPARE_EQUAL, checking scan_state/trie...\n");
-
-			// We need a dictionary-compressed scan state with a Trie attached
 			if (!state.scan_state) {
 				fprintf(stderr, "[Trie-CD] No scan_state -> fallback\n");
 				goto fallback_path;
@@ -398,14 +387,11 @@ void ColumnData::Filter(TransactionData transaction, idx_t vector_index, ColumnS
 				goto fallback_path;
 			}
 
-			// Get filter string (SQL literal → std::string → string_t)
 			std::string filter_std = StringValue::Get(constant_filter.constant);
 			string_t filter_str(filter_std);
 
-			// Lookup dictionary ID using the Trie
 			uint32_t dict_id = 0;
 			if (!dict_state->trie->FindExact(filter_str, dict_id)) {
-				// Value is NOT inside dictionary → no matches at all
 				fprintf(stderr,
 				        "[Trie-CD] fast-path: filter value '%s' not found in Trie → s_count=0, early return\n",
 				        filter_std.c_str());
@@ -422,19 +408,14 @@ void ColumnData::Filter(TransactionData transaction, idx_t vector_index, ColumnS
 				return;
 			}
 
-			// At this point we know the value EXISTS in the dictionary.
-			// For safety, we now fall back to the normal scan + filter path,
-			// which will use DuckDB's existing decompression logic.
 			fprintf(stderr,
 			        "[Trie-CD] fast-path: value '%s' found in Trie with dict_id=%u → falling back to normal scan\n",
 			        filter_std.c_str(),
 			        dict_id);
-			// (no return here; continue to fallback_path)
 		}
 	}
 
 fallback_path:
-	// Original fallback path: full scan + generic filter application
 	idx_t scan_count = Scan(transaction, vector_index, state, result);
 	fprintf(stderr, "[Trie-CD] FALLBACK PATH: calling Scan + ColumnSegment::FilterSelection (scan_count=%lld)\n",
 	        (long long)scan_count);
