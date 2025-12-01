@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_aggregate_expression.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/main/extension_entries.hpp"
+#include "duckdb/storage/statistics/trie_stats.hpp"
 
 namespace duckdb {
 
@@ -109,6 +110,7 @@ void BuiltinFunctions::Initialize() {
 	AddCollation("nfc", NFCNormalizeFun::GetFunction());
 
 	RegisterExtensionOverloads();
+	RegisterTrieStatsFunctions(*this);
 }
 
 hash_t BaseScalarFunction::Hash() const {

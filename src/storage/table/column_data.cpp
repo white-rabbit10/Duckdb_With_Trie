@@ -19,6 +19,8 @@
 #include "duckdb/common/serializer/read_stream.hpp"
 #include "duckdb/common/serializer/binary_deserializer.hpp"
 #include "duckdb/common/serializer/serializer.hpp"
+#include "duckdb/planner/filter/in_filter.hpp"
+#include "duckdb/storage/statistics/trie_stats.hpp"
 
 namespace duckdb {
 
@@ -365,27 +367,27 @@ idx_t ColumnData::ScanCount(ColumnScanState &state, Vector &result, idx_t scan_c
 void ColumnData::Filter(TransactionData transaction, idx_t vector_index, ColumnScanState &state, Vector &result,
                         SelectionVector &sel, idx_t &s_count, const TableFilter &filter,
                         TableFilterState &filter_state) {
+
+	g_trie_metrics.filter_calls++;
 	// --- TRIE FAST PATH FOR VARCHAR + DICTIONARY + EQUALITY ---
+	auto *dict_state = dynamic_cast<CompressedStringScanState *>(state.scan_state.get());
+	if (!dict_state || !dict_state->trie) {
+		fprintf(stderr, "[Trie-CD] scan_state is not CompressedStringScanState or trie missing -> fallback\n");
+		goto fallback_path;
+	}
+
+	// 1. EQUAL (=) operator
 	if (filter.filter_type == TableFilterType::CONSTANT_COMPARISON &&
-	    type.id() == LogicalTypeId::VARCHAR) {
+		type.id() == LogicalTypeId::VARCHAR) {
 
 		auto &constant_filter = filter.Cast<ConstantFilter>();
 		fprintf(stderr,
-		        "[Trie-CD] Candidate for fast-path: CONSTANT_COMPARISON on VARCHAR. comparison_type=%d\n",
-		        (int)constant_filter.comparison_type);
+				"[Trie-CD] Candidate for fast-path: CONSTANT_COMPARISON on VARCHAR. comparison_type=%d\n",
+				(int)constant_filter.comparison_type);
 
+		// ---------- ONLY handle: s = 'abc' ----------
 		if (constant_filter.comparison_type == ExpressionType::COMPARE_EQUAL) {
 			fprintf(stderr, "[Trie-CD] comparison_type = COMPARE_EQUAL, checking scan_state/trie...\n");
-			if (!state.scan_state) {
-				fprintf(stderr, "[Trie-CD] No scan_state -> fallback\n");
-				goto fallback_path;
-			}
-
-			auto *dict_state = dynamic_cast<CompressedStringScanState *>(state.scan_state.get());
-			if (!dict_state || !dict_state->trie) {
-				fprintf(stderr, "[Trie-CD] scan_state is not CompressedStringScanState or trie missing -> fallback\n");
-				goto fallback_path;
-			}
 
 			std::string filter_std = StringValue::Get(constant_filter.constant);
 			string_t filter_str(filter_std);
@@ -393,8 +395,8 @@ void ColumnData::Filter(TransactionData transaction, idx_t vector_index, ColumnS
 			uint32_t dict_id = 0;
 			if (!dict_state->trie->FindExact(filter_str, dict_id)) {
 				fprintf(stderr,
-				        "[Trie-CD] fast-path: filter value '%s' not found in Trie → s_count=0, early return\n",
-				        filter_std.c_str());
+						"[Trie-CD] fast-path: filter value '%s' not found in Trie → s_count=0, early return\n",
+						filter_std.c_str());
 				s_count = 0;
 				return;
 			}
@@ -402,20 +404,57 @@ void ColumnData::Filter(TransactionData transaction, idx_t vector_index, ColumnS
 			// DictID = 0 is reserved for NULL; equality with NULL never matches
 			if (dict_id == 0) {
 				fprintf(stderr,
-				        "[Trie-CD] fast-path: dict_id=0 (NULL) for value '%s' → s_count=0, early return\n",
-				        filter_std.c_str());
+						"[Trie-CD] fast-path: dict_id=0 (NULL) for value '%s' → s_count=0, early return\n",
+						filter_std.c_str());
+				g_trie_metrics.eq_negative_hits++;
 				s_count = 0;
 				return;
 			}
 
 			fprintf(stderr,
-			        "[Trie-CD] fast-path: value '%s' found in Trie with dict_id=%u → falling back to normal scan\n",
-			        filter_std.c_str(),
-			        dict_id);
+					"[Trie-CD] fast-path: value '%s' found in Trie with dict_id=%u → falling back to normal scan\n",
+					filter_std.c_str(),
+					dict_id);
+			g_trie_metrics.eq_positive_hits++;
+			goto fallback_path;
 		}
+	} 
+	
+	if (filter.filter_type == TableFilterType::IN_FILTER &&
+		type.id() == LogicalTypeId::VARCHAR) 
+	{
+		auto &in_filter = filter.Cast<InFilter>();
+		bool any_match = false;
+
+		for (auto &v : in_filter.values) {
+			if (!v.IsNull() && v.type().id() == LogicalTypeId::VARCHAR) {
+				std::string val = StringValue::Get(v);
+
+				uint32_t dict_id = 0;
+				if (dict_state->trie->FindExact(val, dict_id)) {
+					any_match = true;
+					break;
+				}
+			}
+		}
+
+		if (!any_match) {
+			fprintf(stderr, "[Trie-CD] NEGATIVE fast-path (IN): no IN values found in Trie → zero matches\n");
+			g_trie_metrics.in_negative_hits++;
+			s_count = 0;
+			return;
+		}
+
+		fprintf(stderr, "[Trie-CD] POSITIVE IN fast-path: at least one IN value exists → fallback\n");
+		g_trie_metrics.in_positive_hits++;
+		goto fallback_path;
 	}
 
+	// Unknown filter: fallback
+    fprintf(stderr, "[Trie-CD] Filter type not handled by Trie → fallback\n");
+
 fallback_path:
+	g_trie_metrics.fallback_calls++;
 	idx_t scan_count = Scan(transaction, vector_index, state, result);
 	fprintf(stderr, "[Trie-CD] FALLBACK PATH: calling Scan + ColumnSegment::FilterSelection (scan_count=%lld)\n",
 	        (long long)scan_count);
