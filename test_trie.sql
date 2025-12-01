@@ -19,7 +19,7 @@ PRAGMA profiling_output = '/Users/srishtisachan/Classes/CSCI 543 - ADS/Project 2
 SELECT count(*) FROM test_trie WHERE s = 'abc50';
 
 
- SELECT trie_stats_reset();
+SELECT trie_stats_reset();
 SELECT * FROM trie_stats();
 
 /*

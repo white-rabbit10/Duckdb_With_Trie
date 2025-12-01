@@ -419,37 +419,6 @@ void ColumnData::Filter(TransactionData transaction, idx_t vector_index, ColumnS
 			goto fallback_path;
 		}
 	} 
-	
-	if (filter.filter_type == TableFilterType::IN_FILTER &&
-		type.id() == LogicalTypeId::VARCHAR) 
-	{
-		auto &in_filter = filter.Cast<InFilter>();
-		bool any_match = false;
-
-		for (auto &v : in_filter.values) {
-			if (!v.IsNull() && v.type().id() == LogicalTypeId::VARCHAR) {
-				std::string val = StringValue::Get(v);
-
-				uint32_t dict_id = 0;
-				if (dict_state->trie->FindExact(val, dict_id)) {
-					any_match = true;
-					break;
-				}
-			}
-		}
-
-		if (!any_match) {
-			fprintf(stderr, "[Trie-CD] NEGATIVE fast-path (IN): no IN values found in Trie → zero matches\n");
-			g_trie_metrics.in_negative_hits++;
-			s_count = 0;
-			return;
-		}
-
-		fprintf(stderr, "[Trie-CD] POSITIVE IN fast-path: at least one IN value exists → fallback\n");
-		g_trie_metrics.in_positive_hits++;
-		goto fallback_path;
-	}
-
 	// Unknown filter: fallback
     fprintf(stderr, "[Trie-CD] Filter type not handled by Trie → fallback\n");
 
