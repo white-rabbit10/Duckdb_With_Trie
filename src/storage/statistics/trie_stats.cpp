@@ -25,12 +25,6 @@ static unique_ptr<FunctionData> TrieStatsBind(ClientContext &context, TableFunct
 	names.emplace_back("eq_negative_hits");
 	return_types.emplace_back(LogicalType::BIGINT);
 
-	names.emplace_back("in_positive_hits");
-	return_types.emplace_back(LogicalType::BIGINT);
-
-	names.emplace_back("in_negative_hits");
-	return_types.emplace_back(LogicalType::BIGINT);
-
 	return nullptr;
 }
 
@@ -54,8 +48,6 @@ static void TrieStatsFunction(ClientContext &context, TableFunctionInput &data_p
 	output.SetValue(col_idx++, row_idx, Value::BIGINT(static_cast<int64_t>(g_trie_metrics.fallback_calls.load())));
 	output.SetValue(col_idx++, row_idx, Value::BIGINT(static_cast<int64_t>(g_trie_metrics.eq_positive_hits.load())));
 	output.SetValue(col_idx++, row_idx, Value::BIGINT(static_cast<int64_t>(g_trie_metrics.eq_negative_hits.load())));
-	output.SetValue(col_idx++, row_idx, Value::BIGINT(static_cast<int64_t>(g_trie_metrics.in_positive_hits.load())));
-	output.SetValue(col_idx++, row_idx, Value::BIGINT(static_cast<int64_t>(g_trie_metrics.in_negative_hits.load())));
 
 	output.SetCardinality(1);
 	state.finished = true;
@@ -67,8 +59,6 @@ static void TrieStatsResetFunction(DataChunk &args, ExpressionState &state, Vect
 	g_trie_metrics.fallback_calls = 0;
 	g_trie_metrics.eq_positive_hits = 0;
 	g_trie_metrics.eq_negative_hits = 0;
-	g_trie_metrics.in_positive_hits = 0;
-	g_trie_metrics.in_negative_hits = 0;
 
 	// Return "OK"
 	result.SetValue(0, Value("OK"));

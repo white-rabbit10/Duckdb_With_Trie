@@ -15,9 +15,6 @@ struct TrieMetrics {
 
 	atomic<uint64_t> eq_positive_hits {0};
 	atomic<uint64_t> eq_negative_hits {0};
-
-	atomic<uint64_t> in_positive_hits {0};
-	atomic<uint64_t> in_negative_hits {0};
 };
 
 extern TrieMetrics g_trie_metrics;
